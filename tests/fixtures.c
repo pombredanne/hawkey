@@ -69,7 +69,6 @@ static
 void add_cmdline(HySack sack)
 {
     Pool *pool = sack_pool(sack);
-    hy_sack_create_cmdline_repo(sack);
     const char *path = pool_tmpjoin(pool, test_globals.repo_dir,
 				    "yum/tour-4-6.noarch.rpm", NULL);
     HyPackage pkg = hy_sack_add_cmdline_package(sack, path);
@@ -108,6 +107,13 @@ fixture_system_only(void)
 {
     HySack sack = create_ut_sack();
     fail_if(setup_with(sack, HY_SYSTEM_REPO_NAME, NULL));
+}
+
+void
+fixture_verify(void)
+{
+    HySack sack = create_ut_sack();
+    fail_if(setup_with(sack, "@System-broken", NULL));
 }
 
 void
@@ -184,11 +190,11 @@ void setup_yum_sack(HySack sack, const char *yum_repo_name)
     fail_if(access(repo_path, X_OK));
     HyRepo repo = glob_for_repofiles(pool, yum_repo_name, repo_path);
 
-    fail_if(hy_sack_load_yum_repo(sack, repo,
-				  HY_BUILD_CACHE |
-				  HY_LOAD_FILELISTS |
-				  HY_LOAD_UPDATEINFO |
-				  HY_LOAD_PRESTO));
+    fail_if(hy_sack_load_repo(sack, repo,
+                              HY_BUILD_CACHE |
+                              HY_LOAD_FILELISTS |
+                              HY_LOAD_UPDATEINFO |
+                              HY_LOAD_PRESTO));
     fail_unless(hy_sack_count(sack) == TEST_EXPECT_YUM_NSOLVABLES);
     hy_repo_free(repo);
 }

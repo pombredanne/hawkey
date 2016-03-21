@@ -153,8 +153,8 @@ following is suggested::
 Repo initialization
 ^^^^^^^^^^^^^^^^^^^
 
-All instantiations of ``hawkey.Repo`` now must be given the name of the Repo. The
-following will now fail::
+All instantiations of :class:`hawkey.Repo` now must be given the name of the
+Repo. The following will now fail::
 
   r = hawkey.Repo()
   r.name = "fedora"
@@ -553,6 +553,13 @@ to::
 
     HySack sack = hy_sack_create(cachedir, arch, rootdir, NULL, 0);
 
+Deprecated ``hy_create_cmdline_repo()``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The function will be removed since `hy_add_cmdline_package` creates cmdline repository automatically.
+
+The function will be dropped after 2015-06-23 AND no sooner than in 0.5.8.
+
 Python bindings
 ---------------
 
@@ -565,3 +572,106 @@ This addition lets user specify log file path from :meth:`.Sack.__init__`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 This change was already announced but it actually never happened.
+
+Deprecated ``Sack`` method ``create_cmdline_repo()``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The method will be removed since :meth:`.Sack.add_cmdline_package` creates cmdline repository automatically.
+
+The method will be dropped after 2015-06-23 AND no sooner than in 0.5.8.
+
+
+Changes in 0.5.4
+================
+
+Python bindings
+---------------
+
+Goal: ``install()`` takes a new optional parameter
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If the ``optional`` parameter is set to ``True``, hawkey silently skips packages that can not
+be installed.
+
+
+Changes in 0.5.5
+================
+
+Core
+----
+
+Renamed ``hy_sack_load_yum_repo`` to ``hy_sack_load_repo``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hawkey is package manager agnostic and the ``yum`` phrase could be misleading.
+
+The function will be dropped after 2015-10-27 AND no sooner than in 0.5.8.
+
+Python bindings
+---------------
+
+Sack method `load_yum_repo` has been renamed to :meth:`.Sack.load_repo`
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Hawkey is package manager agnostic and the ``yum`` phrase could be misleading.
+
+The method will be dropped after 2015-10-27 AND no sooner than in 0.5.8.
+
+
+Changes in 0.5.7
+================
+
+Python bindings
+---------------
+
+Package: file attribute is represented by list of Unicode objects
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Sack: `list_arches` method returns list of Unicode objects
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
+Changes in 0.5.9
+================
+
+Core
+----
+
+Deprecated ``hy_goal_req_has_distupgrade()``, ``hy_goal_req_has_erase()`` and ``hy_goal_req_has_upgrade()`` functions 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To make your code compile in 0.5.9 without changing functionality, change::
+
+    hy_goal_req_has_distupgrade_all(goal)
+    hy_goal_req_has_erase(goal)
+    hy_goal_req_has_upgrade_all(goal)
+
+to::
+
+    hy_goal_has_actions(goal, HY_DISTUPGRADE_ALL)
+    hy_goal_has_actions(goal, HY_ERASE)
+    hy_goal_has_actions(goal, HY_UPGRADE_ALL)
+
+respectively
+
+
+Python bindings
+---------------
+
+Deprecated Goal methods :meth:`Goal.req_has_distupgrade_all`, :meth:`Goal.req_has_erase` and :meth:`Goal.req_has_upgrade_all`
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To make your code compatible with hawkey 0.5.9 without changing functionality,
+change::
+
+    goal.req_has_distupgrade_all()
+    goal.req_has_erase()
+    goal.req_has_upgrade_all()
+
+to::
+
+    goal.actions | hawkey.DISTUPGRADE_ALL
+    goal.actions | hawkey.ERASE
+    goal.actions | hawkey.UPGRADE_ALL
+
+respectively

@@ -25,19 +25,21 @@
 #include <solv/util.h>
 #include "types.h"
 #include "nevra.h"
-#include "nevra_internal.h"
-#include "iutil.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifdef __cplusplus
+enum _HyForm :short {
+#else
 enum _HyForm {
+#endif
     HY_FORM_NEVRA = 1,
-    HY_FORM_NEVR,
-    HY_FORM_NEV,
-    HY_FORM_NA,
-    HY_FORM_NAME
+    HY_FORM_NEVR = 2,
+    HY_FORM_NEV = 3,
+    HY_FORM_NA = 4,
+    HY_FORM_NAME = 5
 };
 
 struct _HyPossibilities {

@@ -137,6 +137,18 @@ START_TEST(test_goal_sanity)
 }
 END_TEST
 
+START_TEST(test_goal_actions)
+{
+    HyPackage pkg = get_latest_pkg(test_globals.sack, "walrus");
+    HyGoal goal = hy_goal_create(test_globals.sack);
+    fail_if(hy_goal_has_actions(goal, HY_INSTALL));
+    fail_if(hy_goal_install(goal, pkg));
+    fail_unless(hy_goal_has_actions(goal, HY_INSTALL));
+    hy_package_free(pkg);
+    hy_goal_free(goal);
+}
+END_TEST
+
 START_TEST(test_goal_update_impossible)
 {
     HyPackage pkg = get_latest_pkg(test_globals.sack, "walrus");
@@ -277,6 +289,25 @@ START_TEST(test_goal_install_selector_nomatch)
 }
 END_TEST
 
+START_TEST(test_goal_install_weak_deps)
+{
+    HySelector sltr = hy_selector_create(test_globals.sack);
+    hy_selector_set(sltr, HY_PKG_NAME, HY_EQ, "B");
+    HyGoal goal = hy_goal_create(test_globals.sack);
+    fail_if(hy_goal_install_selector(goal, sltr));
+    HyGoal goal2 = hy_goal_clone(goal);
+    fail_if(hy_goal_run(goal));
+    // recommended package C is installed too
+    assert_iueo(goal, 2, 0, 0, 0);
+
+    fail_if(hy_goal_run_flags(goal2, HY_IGNORE_WEAK_DEPS));
+    assert_iueo(goal2, 1, 0, 0, 0);
+    hy_goal_free(goal);
+    hy_goal_free(goal2);
+    hy_selector_free(sltr);
+}
+END_TEST
+
 START_TEST(test_goal_selector_glob)
 {
     HySelector sltr = hy_selector_create(test_globals.sack);
@@ -374,6 +405,29 @@ START_TEST(test_goal_install_selector_file)
     ck_assert_str_eq("fool", hy_package_get_name(pkg));
     hy_selector_free(sltr);
     hy_packagelist_free(plist);
+    hy_goal_free(goal);
+}
+END_TEST
+
+START_TEST(test_goal_install_optional)
+{
+    HySelector sltr;
+    HyGoal goal = hy_goal_create(test_globals.sack);
+
+    // test optional selector installation
+    sltr = hy_selector_create(test_globals.sack);
+    hy_selector_set(sltr, HY_PKG_NAME, HY_EQ, "hello");
+    fail_if(hy_goal_install_selector_optional(goal, sltr));
+    fail_if(hy_goal_run(goal));
+    hy_selector_free(sltr);
+    assert_iueo(goal, 0, 0, 0, 0);
+
+    // test optional package installation
+    HyPackage pkg = get_latest_pkg(test_globals.sack, "hello");
+    fail_if(hy_goal_install_optional(goal, pkg));
+    fail_if(hy_goal_run(goal));
+    assert_iueo(goal, 0, 0, 0, 0);
+    hy_package_free(pkg);
     hy_goal_free(goal);
 }
 END_TEST
@@ -656,6 +710,31 @@ START_TEST(test_goal_forcebest)
 }
 END_TEST
 
+START_TEST(test_goal_verify)
+{
+    HySack sack = test_globals.sack;
+    HyGoal goal = hy_goal_create(sack);
+
+    fail_unless(hy_goal_run_flags(goal, HY_VERIFY));
+    fail_unless(hy_goal_list_installs(goal) == NULL);
+    fail_unless(hy_get_errno() == HY_E_NO_SOLUTION);
+    fail_unless(hy_goal_count_problems(goal) == 2);
+
+    char *expected;
+    char *problem;
+    problem = hy_goal_describe_problem(goal, 0);
+    expected = "nothing provides missing-dep needed by missing-1-0.x86_64";
+    fail_if(strncmp(problem, expected, strlen(expected)));
+    hy_free(problem);
+    problem = hy_goal_describe_problem(goal, 1);
+    expected = "package conflict-1-0.x86_64 conflicts with ok provided by ok-1-0.x86_64";
+    fail_if(strncmp(problem, expected, strlen(expected)));
+    hy_free(problem);
+
+    hy_goal_free(goal);
+}
+END_TEST
+
 START_TEST(test_goal_installonly)
 {
     const char *installonly[] = {"fool", NULL};
@@ -757,7 +836,7 @@ START_TEST(test_goal_describe_problem_excludes)
     fail_unless(hy_goal_count_problems(goal) > 0);
 
     char *problem = hy_goal_describe_problem(goal, 0);
-    ck_assert_str_eq(problem, "package semolina-2-0.x86_64 is not installable");
+    ck_assert_str_eq(problem, "package semolina does not exist");
     hy_free(problem);
 
     hy_goal_free(goal);
@@ -776,6 +855,29 @@ START_TEST(test_goal_distupgrade_all)
     hy_packagelist_free(plist);
 
     plist = hy_goal_list_downgrades(goal);
+    fail_unless(hy_packagelist_count(plist) == 1);
+    assert_nevra_eq(hy_packagelist_get(plist, 0), "baby-6:4.9-3.x86_64");
+    hy_packagelist_free(plist);
+    hy_goal_free(goal);
+}
+END_TEST
+
+START_TEST(test_goal_distupgrade_all_excludes)
+{
+    HyQuery q = hy_query_create_flags(test_globals.sack, HY_IGNORE_EXCLUDES);
+    hy_query_filter_provides(q, HY_GT|HY_EQ, "flying", "0");
+    HyPackageSet pset = hy_query_run_set(q);
+    hy_sack_add_excludes(test_globals.sack, pset);
+    hy_packageset_free(pset);
+    hy_query_free(q);
+
+    HyGoal goal = hy_goal_create(test_globals.sack);
+    fail_if(hy_goal_distupgrade_all(goal));
+    fail_if(hy_goal_run(goal));
+
+    assert_iueo(goal, 0, 0, 0, 0);
+
+    HyPackageList plist = hy_goal_list_downgrades(goal);
     fail_unless(hy_packagelist_count(plist) == 1);
     assert_nevra_eq(hy_packagelist_get(plist, 0), "baby-6:4.9-3.x86_64");
     hy_packagelist_free(plist);
@@ -1112,6 +1214,26 @@ START_TEST(test_goal_change)
 }
 END_TEST
 
+START_TEST(test_goal_clone)
+{
+    HySack sack = test_globals.sack;
+    HyGoal goal = hy_goal_create(sack);
+
+    hy_goal_upgrade_all(goal);
+    HyGoal goal2 = hy_goal_clone(goal);
+
+    fail_if(hy_goal_run(goal));
+    assert_iueo(goal, 0, 1, 0, 0);
+    fail_unless(size_and_free(hy_goal_list_reinstalls(goal)) == 1);
+    hy_goal_free(goal);
+
+    fail_if(hy_goal_run(goal2));
+    assert_iueo(goal2, 0, 1, 0, 0);
+    fail_unless(size_and_free(hy_goal_list_reinstalls(goal2)) == 1);
+    hy_goal_free(goal2);
+}
+END_TEST
+
 START_TEST(test_cmdline_file_provides)
 {
     HySack sack = test_globals.sack;
@@ -1132,6 +1254,7 @@ goal_suite(void)
 
     tc = tcase_create("Core");
     tcase_add_unchecked_fixture(tc, fixture_all, teardown);
+    tcase_add_test(tc, test_goal_actions);
     tcase_add_test(tc, test_goal_sanity);
     tcase_add_test(tc, test_goal_update_impossible);
     tcase_add_test(tc, test_goal_list_err);
@@ -1141,6 +1264,7 @@ goal_suite(void)
     tcase_add_test(tc, test_goal_install_selector_err);
     tcase_add_test(tc, test_goal_install_selector_two);
     tcase_add_test(tc, test_goal_install_selector_nomatch);
+    tcase_add_test(tc, test_goal_install_optional);
     tcase_add_test(tc, test_goal_selector_glob);
     tcase_add_test(tc, test_goal_selector_provides_glob);
     tcase_add_test(tc, test_goal_selector_upgrade);
@@ -1179,11 +1303,13 @@ goal_suite(void)
     tcase_add_test(tc, test_goal_install_selector_file);
     tcase_add_test(tc, test_goal_rerun);
     tcase_add_test(tc, test_goal_unneeded);
+    tcase_add_test(tc, test_goal_distupgrade_all_excludes);
     suite_add_tcase(s, tc);
 
     tc = tcase_create("Greedy");
     tcase_add_unchecked_fixture(tc, fixture_greedy_only, teardown);
     tcase_add_test(tc, test_goal_run_all);
+    tcase_add_test(tc, test_goal_install_weak_deps);
     suite_add_tcase(s, tc);
 
     tc = tcase_create("Installonly");
@@ -1208,11 +1334,17 @@ goal_suite(void)
     tc = tcase_create("Change");
     tcase_add_unchecked_fixture(tc, fixture_with_change, teardown);
     tcase_add_test(tc, test_goal_change);
+    tcase_add_test(tc, test_goal_clone);
     suite_add_tcase(s, tc);
 
     tc = tcase_create("Cmdline");
     tcase_add_unchecked_fixture(tc, fixture_with_cmdline, teardown);
     tcase_add_test(tc, test_cmdline_file_provides);
+    suite_add_tcase(s, tc);
+
+    tc = tcase_create("Verify");
+    tcase_add_unchecked_fixture(tc, fixture_verify, teardown);
+    tcase_add_test(tc, test_goal_verify);
     suite_add_tcase(s, tc);
 
     return s;

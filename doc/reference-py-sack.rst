@@ -16,7 +16,7 @@
   Red Hat, Inc.
 
 *******************************************
-``Sack``---The fundamental hawkey structure
+Sack---The fundamental hawkey structure
 *******************************************
 
 .. class:: hawkey.Sack
@@ -25,9 +25,11 @@
   application typically needs at least one instance because it provides much of
   the hawkey's functionality.
 
-  ``len(sack)`` returns the number of the packages loaded into the sack.
-
-  Sacks cannot be deeply copied.
+  .. warning:: Any package instance is not supposed to work interchangeably between
+               :class:`hawkey.Query`, :class:`hawkey.Selector` or :class:`hawkey.Goal`
+               created from different :class:`hawkey.Sack`. Usually for common tasks
+               there is no need to initialize two or more `Sacks` in your program.
+               Sacks cannot be deeply copied.
 
   .. attribute:: cache_dir
 
@@ -72,10 +74,13 @@
 
     `logfile` is a string giving a path of a log file location.
 
+  .. method:: __len__()
+
+    Returns the number of the packages loaded into the sack.
+
   .. method:: add_cmdline_package(filename)
 
-    Add a package to a command line repository and return it. The package is
-    specified as a string `filename` of an RPM file
+    Add a package to a command line repository and return it. The package is specified as a string `filename` of an RPM file. The command line repository will be automatically created if doesn't exist already. It could be referenced later by :const:`hawkey.CMDLINE_REPO_NAME` name.
 
   .. method:: add_excludes(packages)
 
@@ -92,11 +97,6 @@
     and exclude the same package, the package is considered excluded no matter
     of the order.
 
-  .. method:: create_cmdline_repo()
-
-    Create a command line repository for packages specified by names of RPM
-    files. If a repo is already created, the method does nothing.
-
   .. method:: disable_repo(name)
 
     Disable the repository identified by a string *name*. Packages in that
@@ -106,6 +106,15 @@
 
     Enable the repository identified by a string *name*. Packages in that
     repository can be fetched by Queries or Selectors.
+
+  .. warning:: Execution of :meth:`add_excludes`, :meth:`add_includes`,
+               :meth:`disable_repo` or :meth:`enable_repo` methods could cause
+               inconsistent results in previously evaluated :class:`.Query`,
+               :class:`.Selector` or :class:`.Goal`. The rule of thumb is
+               to exclude/include packages, enable/disable repositories at first and
+               then do actual computing using :class:`.Query`, :class:`.Selector`
+               or :class:`.Goal`. For more details see 
+               `developer discussion <https://github.com/rpm-software-management/hawkey/pull/87>`_.
 
   .. method:: evr_cmp(evr1, evr2)
 
@@ -126,31 +135,35 @@
     Load the information about the packages in the system repository (in Fedora
     it is the RPM database) into the sack. This makes the dependency solving
     aware of the already installed packages. The system repository is always
-    called ``@System``. The information is not written to the cache by default.
+    set to :const:`hawkey.SYSTEM_REPO_NAME`. The information is not written to
+    the cache by default.
 
-    `repo` is an optional :class:`Repo` object that represents the system
+    `repo` is an optional :class:`.Repo` object that represents the system
     repository. The object is updated during the loading.
 
     `build_cache` is a boolean that specifies whether the information should be
     written to the cache (see :ref:`\building_and_reusing_the_repo_cache-label`).
 
-  .. method:: load_yum_repo(\
+  .. method:: load_repo(\
     repo, build_cache=False, load_filelists=False, load_presto=False, \
     load_updateinfo=False)
 
-    Load the metadata of packages that can be obtained from different sources
-    into the sack. This makes the dependency solving aware of these packages.
+    Load the information about the packages in a :class:`.Repo` into the sack.
+    This makes the dependency solving aware of these packages. The information
+    is not written to the cache by default.
 
-    `repo` is a :class:`Repo` object providing valid readable paths to the Yum
-    metadata XML files that specify the sources of the packages. The object is
-    updated during the loading.
+    `repo` is the :class:`.Repo` object to be processed. At least its
+    :attr:`.Repo.repomd_fn` must be set. If the cache has to be updated,
+    :attr:`.Repo.primary_fn` is needed too. Some information about the loading
+    process and some results of it are written into the internal state of the
+    repository object.
 
     `build_cache` is a boolean that specifies whether the information should be
     written to the cache (see :ref:`\building_and_reusing_the_repo_cache-label`).
 
     `load_filelists`, `load_presto` and `load_updateinfo` are booleans that
-    specify whether the ``<hash>filelists.xml.gz``, ``<hash>prestodelta.xml.gz``
-    and ``<hash>updateinfo.xml.gz`` files of the repository should be processed.
+    specify whether the :attr:`.Repo.filelists_fn`, :attr:`.Repo.presto_fn` and
+    :attr:`.Repo.updateinfo_fn` files of the repository should be processed.
     These files may contain information needed for dependency solving,
     downloading or querying of some packages. Enable it if you are not sure (see
     :ref:`\case_for_loading_the_filelists-label`).

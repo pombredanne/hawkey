@@ -1,24 +1,34 @@
-%global gitrev c3207af
 %global libsolv_version 0.6.4-1
 
+%if 0%{?rhel} != 0 && 0%{?rhel} <= 7
+# Do not build bindings for python3 for RHEL <= 7
+%bcond_with python3
+%else
+%bcond_without python3
+%endif
+
 Name:		hawkey
-Version:	@VERSION@
-Release:	1%{?dist}
+Version:	0.6.3
+Release:	1%{?snapshot}%{?dist}
 Summary:	Library providing simplified C and Python API to libsolv
 Group:		System Environment/Libraries
 License:	LGPLv2+
 URL:		https://github.com/rpm-software-management/%{name}
-# git clone https://github.com/rpm-software-management/hawkey.git && cd hawkey && package/archive
-Source0:	https://github.com/rpm-software-management/%{name}/archive/%{gitrev}/%{name}-%{gitrev}.tar.gz
+# git clone https://github.com/rpm-software-management/hawkey.git && cd hawkey && tito build --tgz
+Source0:	https://github.com/rpm-software-management/%{name}/archive/%{name}-%{version}.tar.gz
 BuildRequires:	libsolv-devel >= %{libsolv_version}
-BuildRequires:	cmake expat-devel rpm-devel zlib-devel check-devel
+BuildRequires:	cmake expat-devel rpm-devel zlib-devel check-devel valgrind
 Requires:	libsolv%{?_isa} >= %{libsolv_version}
 # prevent provides from nonstandard paths:
 %filter_provides_in %{python_sitearch}/.*\.so$
+%if %{with python3}
 %filter_provides_in %{python3_sitearch}/.*\.so$
+%endif
 # filter out _hawkey_testmodule.so DT_NEEDED _hawkeymodule.so:
 %filter_requires_in %{python_sitearch}/hawkey/test/.*\.so$
+%if %{with python3}
 %filter_requires_in %{python3_sitearch}/hawkey/test/.*\.so$
+%endif
 %filter_setup
 
 %description
@@ -38,12 +48,17 @@ Summary:	Python 2 bindings for the hawkey library
 Group:		Development/Languages
 BuildRequires:  python2-devel
 BuildRequires:  python-nose
-BuildRequires:  python-sphinx >= 1.1.3-9
+%if %{with python3}
+BuildRequires:	python-sphinx >= 1.1.3-9
+%else
+BuildRequires:	python-sphinx
+%endif
 Requires:	%{name}%{?_isa} = %{version}-%{release}
 
 %description -n python-hawkey
 Python 2 bindings for the hawkey library.
 
+%if %{with python3}
 %package -n python3-hawkey
 Summary:	Python 3 bindings for the hawkey library
 Group:		Development/Languages
@@ -54,35 +69,55 @@ Requires:	%{name}%{?_isa} = %{version}-%{release}
 
 %description -n python3-hawkey
 Python 3 bindings for the hawkey library.
+%endif
 
 %prep
-%setup -q -n %{name}-%{gitrev}
+%setup -q -n %{name}-%{version}
 
+%if %{with python3}
 rm -rf py3
 mkdir ../py3
 cp -a . ../py3/
 mv ../py3 ./
+%endif
 
 %build
 %cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo .
 make %{?_smp_mflags}
 make doc-man
 
+%if %{with python3}
 pushd py3
 %cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DPYTHON_DESIRED:str=3.
 make %{?_smp_mflags}
 make doc-man
 popd
+%endif
 
 %check
+if [ "$(id -u)" == "0" ] ; then
+        cat <<ERROR 1>&2
+Package tests cannot be run under superuser account.
+Please build the package as non-root user.
+ERROR
+        exit 1
+fi
 make ARGS="-V" test
-./py3/tests/python/tests/run_nosetests.sh
+%if %{with python3}
+# Run just the Python tests, not all of them, since
+# we have coverage of the core from the first build
+pushd py3/tests/python
+make ARGS="-V" test
+popd
+%endif
 
 %install
 make install DESTDIR=$RPM_BUILD_ROOT
+%if %{with python3}
 pushd py3
 make install DESTDIR=$RPM_BUILD_ROOT
 popd
+%endif
 
 %post -p /sbin/ldconfig
 
@@ -101,12 +136,144 @@ popd
 %files -n python-hawkey
 %{python_sitearch}/
 
+%if %{with python3}
 %files -n python3-hawkey
 %{python3_sitearch}/
 %exclude %{python3_sitearch}/hawkey/__pycache__
 %exclude %{python3_sitearch}/hawkey/test/__pycache__
+%endif
 
 %changelog
+* Mon Mar 21 2016 Jan Silhan <jsilhan@redhat.com> 0.6.3-1
+- Add support for retrieving Group tag from package (Neal Gompa (ニール・ゴンパ))
+- python: release GIL around hy_goal_run* calls (Mikolaj Izdebski)
+- README: hawkey replaced by libhif (Jan Šilhan)
+- fix build without valgrind (RhBug:1289865) (Dan Horák)
+
+* Wed Oct 14 2015 Jan Silhan <jsilhan@redhat.com> 0.6.2-1
+- ignore exludes in running_kernel query (RhBug:Related:1260989) (Michal
+  Luscon)
+- spec: Use `make test` for py3 rather than calling test internals (Colin
+  Walters)
+- added valgrind test (Jan Silhan)
+- Fail with comprehensible error message (RhBug:1265234) (Michael Mraka)
+
+* Tue Sep 22 2015 Michal Luscon <mluscon@redhat.com> 0.6.1-1
+- fixed memleaks from 2f5b9af (Jan Silhan)
+- Support list of strings in provides/requires. (RhBug:1243005)(RhBug:1243002)
+  (Valentina Mukhamedzhanova)
+- Add globbing support to dependency queries.
+  (RhBug:Related:1259650)(RhBug:Related:1249073) (Valentina Mukhamedzhanova)
+- package: filter out solvable:prereqmarker (RhBug:1186721) (Michal Luscon)
+- skip already filtered items (Michael Mraka)
+
+* Fri Aug 07 2015 Jan Silhan <jsilhan@redhat.com> 0.6.0-1
+- Fixed a tiny typo in the RuntimeException message. (Yavor Atanasov)
+- query: return empty query if we can't make reldep (RhBug:1244544) (Igor
+  Gnatenko)
+- Add support for little endian MIPS (Michal Toman)
+- py: goal.run supports ignore_weak_deps param (Related:RhBug:1221635) (Jan
+  Silhan)
+- goal: added HY_IGNORE_WEAK_DEP flag (Jan Silhan)
+
+* Tue Jul 28 2015 Michal Luscon <mluscon@redhat.com> 0.5.9-3
+- Add explicit values to all public enumerations (Colin Walters)
+- types: Revert unintentional ABI break in _hy_key_name_e (RhBug:1247335)
+  (Colin Walters)
+
+* Tue Jul 21 2015 Jan Silhan <jsilhan@redhat.com> 0.5.9-2
+- spec: builds python3-hawkey in Fedora distro (Jan Silhan)
+
+* Fri Jul 17 2015 Michal Luscon <mluscon@redhat.com> 0.5.9-1
+- don't require python3 in rhel (Jan Silhan)
+- depracate hy_goal_has* functions and Goal.req_has_* methods (Jan Silhan)
+- goal: py: implemented __deepcopy__ (Jan Silhan)
+- goal: implement clone (Jan Silhan)
+- goal: py: added actions attribute (Jan Silhan)
+- goal: added hy_goal_has_action function (Jan Silhan)
+- Add weak deps queries (Michal Luscon)
+- spec: fix the command that starts Python 3 tests (Radek Holy)
+
+* Thu Jun 04 2015 Jan Silhan <jsilhan@redhat.com> 0.5.8-1
+- added implicit-function-declaration compile flag (Jan Silhan)
+- subject: Fix compiler warning introduced by previous commit (Colin Walters)
+- python: Verify that nosetest actually ran any tests (Colin Walters)
+- AUTHORS: updated (Jan Silhan)
+- subject: Remove internal header includes from public header (Colin Walters)
+- maintain result map in query (RhBug:1049205) (Jan Silhan)
+- AUTHORS: updated (Jan Silhan)
+- package: Don't assume the same pool in hy_package_cmp() (Matthew Barnes)
+
+* Wed May 20 2015 Michal Luscon <mluscon@redhat.com> 0.5.7-1
+- spec: add a %%{snapshot} macro for easier snapshot building (Radek Holy)
+- doc: sack: deep copy added to warning section (Jan Silhan)
+- doc: sack: warning about multiple Sack usage (Jan Silhan)
+- doc: sack: len(sack) -> method __len__ (Jan Silhan)
+- Package.files returns list of Unicode objects (Jan Silhan)
+
+* Thu May 07 2015 Michal Luscon <mluscon@redhat.com> 0.5.6-1
+- Revert "sack: force recomputing excludes" (RhUbg:1218650) (Jan Silhan)
+
+* Wed Apr 29 2015 Michal Luscon <mluscon@redhat.com> 0.5.5-1
+- get rid of yum references (Jan Silhan)
+- sack: force recomputing excludes (Jan Silhan)
+- doc: cosmetic: made Sack headline more readable (Jan Silhan)
+- doc: sack: warning about using excludes, includes, disabling and enabling
+  repos (Jan Silhan)
+- cosmetic: removed commented code (Jan Silhan)
+- sack: calls reinitiate provides after changing considered map (RhBug:1099342)
+  (Jan Silhan)
+- fixed memleak from d8f2ca7 (Jan Silhan)
+- doc: add to CMDLINE_REPO_NAME and SYSTEM_REPO_NAME the Python API reference
+  manual. (Radek Holy)
+- doc: add Repo to the Python API reference manual. (Radek Holy)
+- updated load_test_repo() to be able to load non-standard system repo (Michael
+  Mraka)
+- python tests for goal.run(verify=True) (Michael Mraka)
+- test for HY_VERIFY flag (Michael Mraka)
+- introduced verify option for goal.run() (Michael Mraka)
+- AUTHORS: fixed name (Michael Mraka)
+- AUTHORS: added 3 Michaels (Jan Silhan)
+- Build for x86_64, correction for C++ (Michal Ruprich)
+
+* Tue Mar 31 2015 Michal Luscon <mluscon@redhat.com> 0.5.4-1
+- setup tito to bump version in VERSION.cmake (Michal Luscon)
+- initialize to use tito (Michal Luscon)
+- prepare repo for tito build system (Michal Luscon)
+- New version 0.5.4 (Michal Luscon)
+- goal: implement methods for optional installation (RhBug:1167881) (Michal Luscon)
+- setup tito to bump version in VERSION.cmake (Michal Luscon)
+- initialize to use tito (Michal Luscon)
+- prepare repo for tito build system (Michal Luscon)
+- New version 0.5.4 (Michal Luscon)
+- goal: implement methods for optional installation (RhBug:1167881) (Michal Luscon)
+
+* Wed Mar 25 2015 Jan Silhan <jsilhan@redhat.com> - 0.5.3-3
+- new release
+
+* Mon Feb 23 2015 Jan Silhan <jsilhan@redhat.com> - 0.5.3-2
+- bumped release to be greater than f21 release
+- Add Peter to Authors (Peter Hjalmarsson)
+- Add support for armv6hl (Peter Hjalmarsson)
+
+* Wed Feb 4 2015 Jan Silhan <jsilhan@redhat.com> - 0.5.3-1
+- README: made readthedoc documentation official (Jan Silhan)
+- sack: deprecation of create_cmdline_repo (Jan Silhan)
+- does not break Sack.__init__ API from 8ce3ce7 (Jan Silhan)
+- doc: document the new logdir parameter of Sack.__init__. (Radek Holy)
+- New version: 0.5.3 (Jan Silhan)
+- apichange: sack: added optional param logdir (Related:RhBug:1175434) (Jan Silhan)
+- apichange: py: rename: Sack.cache_path -> Sack.cache_dir (Radek Holy)
+- doc: add Sack to the Python API reference manual. (Radek Holy)
+- cosmetic: autopep8 applied on __init__.py (Jan Silhan)
+- query: support multiple flags in filter (RhBug:1173027) (Jan Silhan)
+- packaging: make the spec file compatible with GitHub packaging guideliness. (Radek Holy)
+- New version: 0.5.2 (Michal Luscon)
+- hy_chksum_str() returns NULL in case of incorrect type (Michal Luscon)
+- Fix defects found by coverity scan (Michal Luscon)
+- selector: allow selecting provides with globs (RhBug: 1148353) (Michal Luscon)
+- py: nevra_init() references possibly uninitialized variable. (Ales Kozumplik)
+- package: add weak deps attributes. (Ales Kozumplik)
 
 * Thu Sep 18 2014 Aleš Kozumplik <ales@redhat.com> - 0.5.1-1
 - pool_split_evr() assert if we hit unexpected data. (Related:RhBug:1141634) (Ales Kozumplik)

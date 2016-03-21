@@ -67,12 +67,14 @@ static int
 args_pkg_sltr_parse(PyObject *args, PyObject *kwds,
 		     HyPackage *pkg, HySelector *sltr, int *flags, int flag_mask)
 {
-    char *kwlist[] = {"package", "select", "clean_deps", "check_installed", NULL};
-    int clean_deps = 0, check_installed = 0;
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&O&ii", kwlist,
+    char *kwlist[] = {"package", "select", "clean_deps", "check_installed",
+		      "optional", NULL};
+    int clean_deps = 0, check_installed = 0, optional = 0;
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O&O&iii", kwlist,
 				     package_converter, pkg,
 				     selector_converter, sltr,
-				     &clean_deps, &check_installed))
+				     &clean_deps, &check_installed,
+				     &optional))
 	return 0;
     if (!args_pkg_sltr_check(*pkg, *sltr))
 	return 0;
@@ -92,20 +94,31 @@ args_pkg_sltr_parse(PyObject *args, PyObject *kwds,
 	}
 	*flags |= HY_CHECK_INSTALLED;
     }
-
+    if (optional) {
+	if  (!(flag_mask & HY_WEAK_SOLV)) {
+	    PyErr_SetString(PyExc_ValueError,
+			    "Does not accept optional keyword");
+	    return 0;
+	}
+	*flags |= HY_WEAK_SOLV;
+    }
     return 1;
 }
 
 static int
 args_run_parse(PyObject *args, PyObject *kwds, int *flags, PyObject **callback_p)
 {
-    char *kwlist[] = {"callback", "allow_uninstall", "force_best", NULL};
+    char *kwlist[] = {"callback", "allow_uninstall", "force_best", "verify",
+        "ignore_weak_deps", NULL};
+    int ignore_weak_deps = 0;
     int allow_uninstall = 0;
     int force_best = 0;
+    int verify = 0;
     PyObject *callback = NULL;
 
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Oii", kwlist,
-				     &callback, &allow_uninstall, &force_best))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Oiiii", kwlist,
+                                     &callback, &allow_uninstall, &force_best,
+                                     &verify, &ignore_weak_deps))
 	return 0;
 
     if (callback) {
@@ -128,6 +141,10 @@ args_run_parse(PyObject *args, PyObject *kwds, int *flags, PyObject **callback_p
 	*flags |= HY_ALLOW_UNINSTALL;
     if (force_best)
 	*flags |= HY_FORCE_BEST;
+    if (verify)
+	*flags |= HY_VERIFY;
+    if (ignore_weak_deps)
+        *flags |= HY_IGNORE_WEAK_DEPS;
     return 1;
 }
 
@@ -246,11 +263,18 @@ install(_GoalObject *self, PyObject *args, PyObject *kwds)
 {
     HyPackage pkg = NULL;
     HySelector sltr = NULL;
-    if (!args_pkg_sltr_parse(args, kwds, &pkg, &sltr, NULL, 0))
+    int flags = 0;
+    int ret = 0;
+    if (!args_pkg_sltr_parse(args, kwds, &pkg, &sltr, &flags, HY_WEAK_SOLV))
 	return NULL;
 
-    int ret = pkg ? hy_goal_install(self->goal, pkg) :
-	hy_goal_install_selector(self->goal, sltr);
+    if (flags & HY_WEAK_SOLV) {
+	ret = pkg ? hy_goal_install_optional(self->goal, pkg) :
+	    hy_goal_install_selector_optional(self->goal, sltr);
+    } else {
+	ret = pkg ? hy_goal_install(self->goal, pkg) :
+	    hy_goal_install_selector(self->goal, sltr);
+    }
     return op_ret2exc(ret);
 }
 
@@ -312,6 +336,12 @@ userinstalled(_GoalObject *self, PyObject *pkg)
 }
 
 static PyObject *
+has_actions(_GoalObject *self, PyObject *action)
+{
+    return PyBool_FromLong(hy_goal_has_actions(self->goal, PyLong_AsLong(action)));
+}
+
+static PyObject *
 req_has_distupgrade_all(_GoalObject *self, PyObject *unused)
 {
     return PyBool_FromLong(hy_goal_req_has_distupgrade_all(self->goal));
@@ -342,7 +372,10 @@ run(_GoalObject *self, PyObject *args, PyObject *kwds)
     if (!args_run_parse(args, kwds, &flags, NULL))
 	return NULL;
 
-    int ret = hy_goal_run_flags(self->goal, flags);
+    int ret;
+    Py_BEGIN_ALLOW_THREADS;
+    ret = hy_goal_run_flags(self->goal, flags);
+    Py_END_ALLOW_THREADS;
     if (!ret)
 	Py_RETURN_TRUE;
     Py_RETURN_FALSE;
@@ -358,6 +391,7 @@ static int
 py_solver_callback(HyGoal goal, void *data)
 {
     struct _PySolutionCallback *cb_s = (struct _PySolutionCallback*)data;
+    PyGILState_STATE state = PyGILState_Ensure();
 
     PyObject *ret = PyObject_CallObject(cb_s->callback, cb_s->callback_tuple);
     if (ret)
@@ -365,6 +399,7 @@ py_solver_callback(HyGoal goal, void *data)
     else
 	cb_s->errors++;
 
+    PyGILState_Release(state);
     return 0; /* solution_callback() result is ignored in libsolv */
 }
 
@@ -381,8 +416,10 @@ run_all(_GoalObject *self, PyObject *args, PyObject *kwds)
 	return NULL;
 
     struct _PySolutionCallback cb_s = {callback_tuple, callback, 0};
-    int ret = hy_goal_run_all_flags(self->goal, py_solver_callback, &cb_s,
-				    flags);
+    int ret;
+    Py_BEGIN_ALLOW_THREADS;
+    ret = hy_goal_run_all_flags(self->goal, py_solver_callback, &cb_s, flags);
+    Py_END_ALLOW_THREADS;
     Py_DECREF(callback_tuple);
     if (cb_s.errors > 0)
 	return NULL;
@@ -455,7 +492,7 @@ list_generic(_GoalObject *self, HyPackageList (*func)(HyGoal))
 	    PyErr_SetString(HyExc_Value, "Goal has not been run yet.");
 	    break;
 	case HY_E_NO_SOLUTION:
-	    PyErr_SetString(HyExc_Runtime, "Goal has not find a solution.");
+	    PyErr_SetString(HyExc_Runtime, "Goal could not find a solution.");
 	    break;
 	default:
 	    assert(0);
@@ -533,7 +570,28 @@ get_reason(_GoalObject *self, PyObject *pkg)
     return PyLong_FromLong(reason);
 }
 
+PyObject *
+goalToPyObject(HyGoal goal, PyObject *sack)
+{
+    _GoalObject *self = (_GoalObject *)goal_Type.tp_alloc(&goal_Type, 0);
+    if (self) {
+        self->goal = goal;
+        self->sack = sack;
+        Py_INCREF(sack);
+    }
+    return (PyObject *)self;
+}
+
+static PyObject *
+deepcopy(_GoalObject *self, PyObject *args, PyObject *kwds)
+{
+    HyGoal goal = hy_goal_clone(self->goal);
+    return goalToPyObject(goal, self->sack);
+}
+
 static struct PyMethodDef goal_methods[] = {
+    {"__deepcopy__", (PyCFunction)deepcopy, METH_KEYWORDS|METH_VARARGS,
+     NULL},
     {"distupgrade_all",	(PyCFunction)distupgrade_all,	METH_NOARGS,	NULL},
     {"distupgrade",		(PyCFunction)distupgrade,
      METH_VARARGS | METH_KEYWORDS, NULL},
@@ -548,9 +606,16 @@ static struct PyMethodDef goal_methods[] = {
      METH_VARARGS | METH_KEYWORDS, NULL},
     {"upgrade_all",	(PyCFunction)upgrade_all,	METH_NOARGS,	NULL},
     {"userinstalled",	(PyCFunction)userinstalled,	METH_O,		NULL},
+    {"_has_actions",	(PyCFunction)has_actions,	METH_O, NULL},
+    // deprecated in 0.5.9, will be removed in 1.0.0
+    // use goal.actions | hawkey.DISTUPGRADE_ALL instead
     {"req_has_distupgrade_all",	(PyCFunction)req_has_distupgrade_all,
      METH_NOARGS,	NULL},
+    // deprecated in 0.5.9, will be removed in 1.0.0
+    // use goal.actions | hawkey.ERASE instead
     {"req_has_erase",	(PyCFunction)req_has_erase,	METH_NOARGS,	NULL},
+    // deprecated in 0.5.9, will be removed in 1.0.0
+    // use goal.actions | hawkey.UPGRADE_ALL instead
     {"req_has_upgrade_all", (PyCFunction)req_has_upgrade_all,
      METH_NOARGS,	NULL},
     {"req_length",	(PyCFunction)req_length,	METH_NOARGS,	NULL},

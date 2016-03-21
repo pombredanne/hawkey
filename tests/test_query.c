@@ -25,6 +25,7 @@
 
 // hawkey
 #include "src/query.h"
+#include "src/query_internal.h"
 #include "src/package.h"
 #include "src/packageset.h"
 #include "src/reldep.h"
@@ -349,6 +350,62 @@ START_TEST(test_query_provides)
 }
 END_TEST
 
+START_TEST(test_query_recommends)
+{
+    HyPackageList plist;
+    HyPackage pkg;
+    HyQuery q = hy_query_create(test_globals.sack);
+    hy_query_filter(q, HY_PKG_RECOMMENDS, HY_EQ, "baby");
+    plist = hy_query_run(q);
+    pkg = hy_packagelist_get(plist, 0);
+    ck_assert_str_eq(hy_package_get_name(pkg), "flying");
+    hy_query_free(q);
+    hy_packagelist_free(plist);
+}
+END_TEST
+
+START_TEST(test_query_suggests)
+{
+    HyPackageList plist;
+    HyPackage pkg;
+    HyQuery q = hy_query_create(test_globals.sack);
+    hy_query_filter(q, HY_PKG_SUGGESTS, HY_EQ, "walrus");
+    plist = hy_query_run(q);
+    pkg = hy_packagelist_get(plist, 0);
+    ck_assert_str_eq(hy_package_get_name(pkg), "flying");
+    hy_query_free(q);
+    hy_packagelist_free(plist);
+}
+END_TEST
+
+START_TEST(test_query_supplements)
+{
+    HyPackageList plist;
+    HyPackage pkg;
+    HyQuery q = hy_query_create(test_globals.sack);
+    hy_query_filter(q, HY_PKG_SUPPLEMENTS, HY_EQ, "flying");
+    plist = hy_query_run(q);
+    pkg = hy_packagelist_get(plist, 0);
+    ck_assert_str_eq(hy_package_get_name(pkg), "baby");
+    hy_query_free(q);
+    hy_packagelist_free(plist);
+}
+END_TEST
+
+START_TEST(test_query_enhances)
+{
+    HyPackageList plist;
+    HyPackage pkg;
+    HyQuery q = hy_query_create(test_globals.sack);
+    hy_query_filter(q, HY_PKG_ENHANCES, HY_EQ, "flying");
+    plist = hy_query_run(q);
+    pkg = hy_packagelist_get(plist, 0);
+    ck_assert_str_eq(hy_package_get_name(pkg), "walrus");
+    hy_query_free(q);
+    hy_packagelist_free(plist);
+}
+END_TEST
+
 START_TEST(test_query_provides_in)
 {
     HyPackage pkg;
@@ -598,7 +655,79 @@ START_TEST(test_query_provides_str)
     ck_assert_int_eq(query_count_results(q), 2);
     hy_query_free(q);
 
+    q = hy_query_create(test_globals.sack);
+    hy_query_filter(q, HY_PKG_PROVIDES, HY_EQ, "thisisnotgoingtoexist");
+    ck_assert_int_eq(query_count_results(q), 0);
+    hy_query_free(q);
 }
+END_TEST
+
+START_TEST(test_query_provides_glob)
+    {
+        HyQuery q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_PROVIDES, HY_GLOB, "penny*");
+        ck_assert_int_eq(query_count_results(q), 6);
+        hy_query_free(q);
+
+        HyQuery q1 = hy_query_create(test_globals.sack);
+        HyQuery q2 = hy_query_create(test_globals.sack);
+        hy_query_filter(q1, HY_PKG_PROVIDES, HY_GLOB, "P-l*b >= 3");
+        hy_query_filter(q2, HY_PKG_PROVIDES, HY_EQ, "P-lib >= 3");
+        ck_assert_int_eq(query_count_results(q1), query_count_results(q2));
+        hy_query_free(q1);
+        hy_query_free(q2);
+
+        q1 = hy_query_create(test_globals.sack);
+        q2 = hy_query_create(test_globals.sack);
+        hy_query_filter(q1, HY_PKG_PROVIDES, HY_GLOB, "*");
+        fail_unless(query_count_results(q1) == query_count_results(q2));
+        hy_query_free(q1);
+        hy_query_free(q2);
+    }
+END_TEST
+
+START_TEST(test_query_rco_glob)
+    {
+        HyQuery q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_REQUIRES, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 5);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_REQUIRES, HY_GLOB, "*oo*");
+        ck_assert_int_eq(query_count_results(q), 2);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_CONFLICTS, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 1);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_OBSOLETES, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 0);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_ENHANCES, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 1);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_RECOMMENDS, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 1);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_SUGGESTS, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 1);
+        hy_query_free(q);
+
+        q = hy_query_create(test_globals.sack);
+        hy_query_filter(q, HY_PKG_SUPPLEMENTS, HY_GLOB, "*");
+        ck_assert_int_eq(query_count_results(q), 1);
+        hy_query_free(q);
+    }
 END_TEST
 
 START_TEST(test_query_reldep)
@@ -832,6 +961,36 @@ START_TEST(test_query_multiple_flags)
 }
 END_TEST
 
+START_TEST(test_query_apply)
+{
+    HySack sack = test_globals.sack;
+    HyQuery q;
+    HyPackageList plist;
+
+    q = hy_query_create(sack);
+    hy_query_filter(q, HY_PKG_NAME, HY_NOT | HY_GLOB, "j*");
+    struct _HyQuery _q = *q;
+    fail_unless(_q.result == NULL);
+    ck_assert_int_gt(_q.nfilters, 0);
+    ck_assert_int_eq(_q.applied, 0);
+    hy_query_apply(q);
+    _q = *q;
+    fail_unless(_q.result != NULL);
+    ck_assert_int_eq(_q.nfilters, 0);
+    ck_assert_int_eq(_q.applied, 1);
+    hy_query_filter(q, HY_PKG_NAME, HY_NOT | HY_GLOB, "p*");
+    _q = *q;
+    fail_unless(_q.result != NULL);
+    ck_assert_int_gt(_q.nfilters, 0);
+    ck_assert_int_eq(_q.applied, 0);
+    plist = hy_query_run(q);
+
+    ck_assert_int_eq(hy_packagelist_count(plist), 6);
+    hy_packagelist_free(plist);
+    hy_query_free(q);
+}
+END_TEST
+
 Suite *
 query_suite(void)
 {
@@ -862,6 +1021,7 @@ query_suite(void)
     tcase_add_test(tc, test_query_nevra);
     tcase_add_test(tc, test_query_nevra_glob);
     tcase_add_test(tc, test_query_multiple_flags);
+    tcase_add_test(tc, test_query_apply);
     suite_add_tcase(s, tc);
 
     tc = tcase_create("Updates");
@@ -880,6 +1040,12 @@ query_suite(void)
     tcase_add_test(tc, test_downgrade);
     tcase_add_test(tc, test_downgradable);
     tcase_add_test(tc, test_query_provides_str);
+    tcase_add_test(tc, test_query_provides_glob);
+    tcase_add_test(tc, test_query_rco_glob);
+    tcase_add_test(tc, test_query_recommends);
+    tcase_add_test(tc, test_query_suggests);
+    tcase_add_test(tc, test_query_supplements);
+    tcase_add_test(tc, test_query_enhances);
     tcase_add_test(tc, test_query_reldep);
     tcase_add_test(tc, test_query_reldep_arbitrary);
     tcase_add_test(tc, test_query_requires);

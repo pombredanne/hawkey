@@ -134,7 +134,7 @@ static PyObject *
 get_evaluated(_QueryObject *self, void *unused)
 {
     HyQuery q = self->query;
-    return PyBool_FromLong((long)q->result);
+    return PyBool_FromLong((long)q->applied);
 }
 
 static PyGetSetDef query_getsetters[] = {
@@ -258,10 +258,11 @@ filter(_QueryObject *self, PyObject *args)
 
 	break;
     }
-    case HY_PKG_PROVIDES: {
+    case HY_PKG_PROVIDES:
+    case HY_PKG_REQUIRES: {
 	HySack sack = sackFromPyObject(self->sack);
 	assert(sack);
-	HyReldepList reldeplist = pyseq_to_reldeplist(match, sack);
+	HyReldepList reldeplist = pyseq_to_reldeplist(match, sack, cmp_type);
 	if (reldeplist == NULL)
 	    return NULL;
 
@@ -315,12 +316,22 @@ run(_QueryObject *self, PyObject *unused)
     return list;
 }
 
+static PyObject *
+apply(PyObject *self, PyObject *unused)
+{
+    hy_query_apply(((_QueryObject *) self)->query);
+    Py_INCREF(self);
+    return self;
+}
+
 static struct PyMethodDef query_methods[] = {
     {"clear", (PyCFunction)clear, METH_NOARGS,
      NULL},
     {"filter", (PyCFunction)filter, METH_VARARGS,
      NULL},
     {"run", (PyCFunction)run, METH_NOARGS,
+     NULL},
+    {"apply", (PyCFunction)apply, METH_NOARGS,
      NULL},
     {NULL}                      /* sentinel */
 };
